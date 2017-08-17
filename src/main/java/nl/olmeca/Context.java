@@ -2,6 +2,7 @@ package nl.olmeca;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -19,8 +20,14 @@ public class Context {
     boolean foundTag = false;
     int letter;
 
+    public Context() {
+        this.values = new HashMap<>();
+    }
+
     public Context(Map<String, Object> map) {
-        this.values = map;
+        this();
+        if (map != null)
+            this.values = map;
     }
 
 

@@ -28,12 +28,8 @@ public class Yaml2JbossCliCompiler
     Context context;
 
 
-    public Yaml2JbossCliCompiler(File outputFile, File contextFile) throws IOException {
-        if (contextFile != null) {
-            YamlReader reader = new YamlReader(new FileReader(contextFile));
-            this.context = new Context(reader.read(Map.class));
-            reader.close();
-        }
+    public Yaml2JbossCliCompiler(File outputFile, Map<String, Object> contextMap) throws IOException {
+        this.context = new Context(contextMap);
         this.outputFile = outputFile;
     }
 
@@ -55,6 +51,10 @@ public class Yaml2JbossCliCompiler
         } catch (IOException e) {
             System.out.println("Error reading file: " + file);
         }
+    }
+
+    private String resolve(String value) {
+        return context == null ? value : context.resolve(value);
     }
 
     private List<String> plus(List<String> list, String item) {
@@ -118,10 +118,10 @@ public class Yaml2JbossCliCompiler
     private String serializeString(String string) {
         // Hack to only call myself on the resolved value if anything was resolved
         try {
-            string = context.resolve(string);
+            string = resolve(string);
             // recurse only if no exception was thrown
             return serialize(string);
-        } catch (IllegalArgumentException iae) {
+        } catch (Context.NoTagsFound ntf) {
             return quoteIfRealString(string);
         }
     }
@@ -145,7 +145,7 @@ public class Yaml2JbossCliCompiler
 
     private void writeJbossCliCommand(PrintWriter writer, Map<String, Object> command, List<String> path) {
         command.entrySet().forEach(entry ->
-            writeJbossCliCommand(writer, entry.getValue(), plus(path, cliName(entry.getKey())))
+            writeJbossCliCommand(writer, entry.getValue(), plus(path, cliName(resolve(entry.getKey()))))
         );
     }
 
@@ -159,14 +159,25 @@ public class Yaml2JbossCliCompiler
         CommandLine commandLine = new CommandLine(args);
         String outputFilePath = commandLine.getNamedParams().get(PARAM_OUTPUTFILE);
         String contextFilePath = commandLine.getNamedParams().get(PARAM_PARAMFILE);
-        File contextFile = contextFilePath == null ? null : new File(contextFilePath);
+        Map<String, Object> contextMap = null;
+        if (contextFilePath != null) {
+            File contextFile = new File(contextFilePath);
+            if (!contextFile.exists()) {
+                System.out.println("File not found: " + contextFilePath);
+                System.exit(1);
+            }
+            YamlReader reader = new YamlReader(new FileReader(contextFile));
+            contextMap = reader.read(Map.class);
+            reader.close();
+
+        }
         List<String> params = commandLine.getIndexedParams();
         if (outputFilePath == null || params.size() == 0) {
             System.out.println("Usage: yaml2jbosscli -o <output file name> <input file name> [<input file name>]...");
             return;
         }
         System.out.println("Writing output to file: " + outputFilePath);
-        Yaml2JbossCliCompiler compiler = new Yaml2JbossCliCompiler(new File(outputFilePath), contextFile);
+        Yaml2JbossCliCompiler compiler = new Yaml2JbossCliCompiler(new File(outputFilePath), contextMap);
         compiler.processFiles(commandLine.getIndexedParams());
     }
 }
