@@ -39,6 +39,29 @@ public class ContextTest {
         assertEquals("zo <een> test", resolved);
     }
 
+    @Test public void test_context_leaves_empty_tag_untouched() {
+        String resolved = context.resolve("zo <> <een> test");
+        assertEquals("zo <een> test", resolved);
+    }
+
+    @Test public void test_context_throws_exception_if_empty_tag() {
+        assertThrows(IllegalStateException.class, () -> {
+            context.resolve("zo <> test");
+        });
+    }
+
+    @Test public void test_context_throws_exception_if_empty_key_at_end() {
+        assertThrows(IllegalStateException.class, () -> {
+            context.resolve("zo <my.> test");
+        });
+    }
+
+    @Test public void test_context_throws_exception_if_empty_key_at_start() {
+        assertThrows(IllegalStateException.class, () -> {
+            context.resolve("zo <.my> test");
+        });
+    }
+
     @Test public void test_context_returns_original_if_no_full_tag() {
         assertThrows(Context.NoTagsFound.class, () -> {
             context.resolve("zo <een test");

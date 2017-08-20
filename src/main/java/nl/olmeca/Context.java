@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 public class Context {
 
@@ -17,7 +16,7 @@ public class Context {
     StringBuilder keyBuffer;
     Object currentObject = null;
     boolean inTag = false;
-    boolean foundTag = false;
+    boolean foundKey = false;
     int letter;
 
     public Context() {
@@ -38,13 +37,13 @@ public class Context {
         StringReader reader = new StringReader(template);
         currentObject = values;
         inTag = false;
-        foundTag = false;
+        foundKey = false;
         try {
             while ((letter = reader.read()) != -1) {
                 switch (letter) {
                     case tagStart:
                         if (inTag) {
-                            throw new IllegalStateException("Start tag inside tag in string '" + template + "'");
+                            throw new IllegalStateException("Placeholder start marker inside placeholder in string '" + template + "'");
                         } else {
                             tagBuffer.setLength(0);
                             keyBuffer.setLength(0);
@@ -54,18 +53,21 @@ public class Context {
                         break;
                     case tagEnd:
                         if (inTag) {
+                            checkKeyBuffer(template);
+                            if (tagBuffer.length() > 0) {
+                                navigateObjectByKey();
+                            }
                             // resolve found tag
-                            handleKey();
-                            result.append(currentObjectString());
+                            result.append(currentValue());
                             inTag = false;
-                            foundTag = true;
                         } else {
-                            throw new IllegalStateException("End tag without matching start tag in string '" + template + "'");
+                            throw new IllegalStateException("Placeholder end marker without matching start marker in string '" + template + "'");
                         }
                         break;
                     case keyPathSeparator:
+                        checkKeyBuffer(template);
                         if (inTag) {
-                            handleKey();
+                            navigateObjectByKey();
                             tagBuffer.append((char)letter);
                         } else {
                             result.append((char)letter);
@@ -84,21 +86,37 @@ public class Context {
             e.printStackTrace();
         }
         // Throwing this exception to signal that no tag was found
-        if (!foundTag)
+        if (!foundKey)
             throw new NoTagsFound();
         return result.toString();
     }
 
-    private String currentObjectString() {
-        return currentObject == null ? (tagStart + tagBuffer.toString() + tagEnd) : currentObject.toString();
+    private String tagString() {
+        return tagStart + tagBuffer.toString() + tagEnd;
     }
 
-    private void handleKey() {
+    private void checkKeyBuffer(String template) {
+        if (keyBuffer.length() == 0)
+            throw new IllegalStateException("Illegal placeholder: '" + tagString() + "' in string: '" + template + "'");
+    }
+
+    private String currentValue() {
+        return currentObject == null || !foundKey
+                ? tagString()
+                : currentObject.toString();
+    }
+
+    private void navigateObjectByKey() {
         if (currentObject != null) {
             if (currentObject instanceof Map) {
-                String key = keyBuffer.toString();
-                currentObject = ((Map<String, Object>) currentObject).get(key);
-                keyBuffer.setLength(0);
+                Map<String, Object> currentMap = (Map<String, Object>) currentObject;
+                if (keyBuffer.length() > 0) {
+                    String key = keyBuffer.toString();
+                    if(currentMap.containsKey(key))
+                        foundKey = true;
+                    currentObject = (currentMap.get(key));
+                    keyBuffer.setLength(0);
+                }
             }
             else {
                 throw new IllegalArgumentException("Context cannot resolve keypath longer than " + tagBuffer.toString());

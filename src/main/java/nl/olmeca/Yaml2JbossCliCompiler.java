@@ -117,12 +117,13 @@ public class Yaml2JbossCliCompiler
 
     private String serializeString(String string) {
         // Hack to only call myself on the resolved value if anything was resolved
+        String result = string;
         try {
-            string = resolve(string);
+            result = resolve(result);
             // recurse only if no exception was thrown
-            return serialize(string);
+            return serialize(result);
         } catch (Context.NoTagsFound ntf) {
-            return quoteIfRealString(string);
+            return quoteIfRealString(result);
         }
     }
 
@@ -170,6 +171,12 @@ public class Yaml2JbossCliCompiler
             contextMap = reader.read(Map.class);
             reader.close();
 
+        }
+        // TODO: parameter names should not contain '.'; would make them unreachable
+        if (contextMap == null)
+            contextMap = commandLine.getContextParams();
+        else {
+            contextMap.putAll(commandLine.getContextParams());
         }
         List<String> params = commandLine.getIndexedParams();
         if (outputFilePath == null || params.size() == 0) {
