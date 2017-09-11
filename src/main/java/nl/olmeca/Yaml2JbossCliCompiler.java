@@ -1,11 +1,13 @@
 package nl.olmeca;
 
-import com.esotericsoftware.yamlbeans.YamlReader;
+import org.yaml.snakeyaml.Yaml;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -22,39 +24,53 @@ public class Yaml2JbossCliCompiler
     private static final String ARGS_LABEL = "args";
     private static final Pattern INT_MATCHER =  Pattern.compile("[0-9]+[lL]?");
     private static final char PARAM_OUTPUTFILE = 'o';
-    private static final char PARAM_PARAMFILE = 'p';
+    private static final char PARAM_PARAMFILE = 'c';
 
-    File outputFile;
-    Context context;
+    MapFormat context;
 
 
-    public Yaml2JbossCliCompiler(File outputFile, Map<String, Object> contextMap) throws IOException {
-        this.context = new Context(contextMap);
-        this.outputFile = outputFile;
+    public Yaml2JbossCliCompiler(MapFormat context) throws IOException {
+        this.context = context;
     }
 
-    public void processFiles(List<String> files) throws IOException {
-        try (PrintWriter out = new PrintWriter(outputFile, "UTF-8")) {
+    public void processFiles(List<String> files, String outputFile) throws IOException {
+        OutputStream outputStream = outputFile == null ? System.out : new FileOutputStream(outputFile);
+        processFiles(files, outputStream);
+    }
+
+    public void processFiles(List<String> files, OutputStream outputStream) throws IOException {
+        try (OutputStreamWriter out = new OutputStreamWriter(outputStream, "UTF-8")) {
             files.stream().forEach(filePath -> processFile(new File(filePath), out));
         }
     }
 
-    private void processFile(File file, PrintWriter writer) {
-        System.out.println("Processing file: " + file);
+    private void processFile(File file, OutputStreamWriter writer) {
         try {
-            YamlReader reader = new YamlReader(new FileReader(file));
-            List<Object> commands =  reader.read(List.class);
-            commands.forEach(command ->
-                    writeJbossCliCommand(writer, command, new ArrayList<>())
-            );
-            reader.close();
+            Yaml yaml = new Yaml();
+            List<Object> commands =  yaml.load(new FileReader(file));
+            processCommands(commands, writer);
         } catch (IOException e) {
             System.out.println("Error reading file: " + file);
         }
     }
 
+    public void processCommands(String commandsString, OutputStreamWriter writer) {
+        try {
+            Yaml yaml = new Yaml();
+            List<Object> commands =  yaml.load(commandsString);
+            processCommands(commands, writer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void processCommands(List<Object> commands, OutputStreamWriter writer) throws IOException {
+        for (Object command: commands)
+            writeJbossCliCommand(writer, command, new ArrayList<>());
+    }
+
     private String resolve(String value) {
-        return context == null ? value : context.resolve(value);
+        return context == null ? value : context.format(value);
     }
 
     private List<String> plus(List<String> list, String item) {
@@ -63,31 +79,32 @@ public class Yaml2JbossCliCompiler
         return newPath;
     }
 
-    private void writeJbossCliCommand(PrintWriter writer, Object object, List<String> path) {
+    private void writeJbossCliCommand(OutputStreamWriter writer, Object object, List<String> path) throws IOException {
         if (object instanceof List)
             writeJbossCliCommand(writer, (List) object, path);
         else if (object instanceof Map)
             writeJbossCliCommand(writer, (Map) object, path);
     }
 
-    private void writeJbossCliCommand (PrintWriter writer, List<Object> commands, List<String> path) {
-        commands.forEach(command -> {
+    private void writeJbossCliCommand (OutputStreamWriter writer, List<Object> commands, List<String> path) throws IOException {
+        for (Object command: commands)
             if (isCommand(command))
                 writeCommand(writer, (Map)command, path);
             else
                 writeJbossCliCommand(writer, command, path);
-        });
     }
 
-    private void writeCommand(PrintWriter writer, Map command, List<String> path) {
-        path.forEach(item -> writer.write("/" + item));
+    private void writeCommand(OutputStreamWriter writer, Map command, List<String> path) throws IOException {
+        for (String item: path) {
+            writer.write("/" + item);
+        }
         writer.write(serializeCommand(command));
     }
 
     private String serializeCommand(Map<String, Object> command) {
         Object args = command.get(ARGS_LABEL);
         String argString  = args == null ? "" : serializeArguments((Map) args);
-        return ":" + command.get(CMD_LABEL) + argString;
+        return ":" + command.get(CMD_LABEL) + argString + "\n";
     }
 
     private String serializeArguments(Map<String, Object> arguments) {
@@ -101,10 +118,12 @@ public class Yaml2JbossCliCompiler
         return String.join(",", argStrings);
     }
 
-    private String quoteIfRealString(String value) {
-        if ("true".equals(value) ||
+    private String quoteIfRealString(String value, boolean quote) {
+        if (    !quote ||
+                "true".equals(value) ||
                 "false".equals(value) ||
-                INT_MATCHER.matcher(value).matches())
+                INT_MATCHER.matcher(value).matches()
+                )
             return value;
         else
             return "\"" + value + "\"";
@@ -115,21 +134,31 @@ public class Yaml2JbossCliCompiler
         return String.join(",", itemStrings);
     }
 
-    private String serializeString(String string) {
+    private String serializeString(String string, boolean quote) {
         // Hack to only call myself on the resolved value if anything was resolved
         String result = string;
         try {
             result = resolve(result);
             // recurse only if no exception was thrown
             return serialize(result);
-        } catch (Context.NoTagsFound ntf) {
-            return quoteIfRealString(result);
+        } catch (MapFormat.NoTagsResolved ntf) {
+            return quoteIfRealString(result, quote);
         }
+    }
+
+    private String serializeKey(String key) {
+        String resolvedKey = null;
+        try {
+            resolvedKey = resolve(key);
+        } catch (MapFormat.NoTagsResolved ntf) {
+            resolvedKey = key;
+        }
+        return cliName(resolvedKey);
     }
 
     private String serialize(Object object) {
         if (object instanceof String) {
-            return serializeString((String) object);
+            return serializeString((String) object, true);
         }
         else if (object instanceof Map) {
             return "{" + serializeMap((Map) object) + "}";
@@ -144,17 +173,14 @@ public class Yaml2JbossCliCompiler
         return (object instanceof Map) && ((Map) object).get(CMD_LABEL) != null;
     }
 
-    private void writeJbossCliCommand(PrintWriter writer, Map<String, Object> command, List<String> path) {
-        command.entrySet().forEach(entry ->
-            writeJbossCliCommand(writer, entry.getValue(), plus(path, cliName(resolve(entry.getKey()))))
-        );
+    private void writeJbossCliCommand(OutputStreamWriter writer, Map<String, Object> command, List<String> path) throws IOException {
+        for (Map.Entry<String, Object> entry: command.entrySet())
+            writeJbossCliCommand(writer, entry.getValue(), plus(path, serializeKey(entry.getKey())));
     }
 
     private String cliName(String name) {
         return name.indexOf('=') == -1 ? name + "=" + name : name;
     }
-
-
 
     public static void main( String[] args ) throws IOException {
         CommandLine commandLine = new CommandLine(args);
@@ -164,27 +190,28 @@ public class Yaml2JbossCliCompiler
         if (contextFilePath != null) {
             File contextFile = new File(contextFilePath);
             if (!contextFile.exists()) {
-                System.out.println("File not found: " + contextFilePath);
+                System.out.println("Resolver file not found. Exiting.");
                 System.exit(1);
             }
-            YamlReader reader = new YamlReader(new FileReader(contextFile));
-            contextMap = reader.read(Map.class);
-            reader.close();
+            Yaml yaml = new Yaml();
+            contextMap = yaml.load(new FileReader(contextFile));
 
         }
+        MapFormat context;
         // TODO: parameter names should not contain '.'; would make them unreachable
         if (contextMap == null)
-            contextMap = commandLine.getContextParams();
+            context = new MapFormat(commandLine.getContextParams());
         else {
-            contextMap.putAll(commandLine.getContextParams());
+            context = new MapFormat(contextMap);
+            commandLine.getContextParams().entrySet().stream().forEach(
+                    entry -> context.readNamedParam(entry.getKey(), entry.getValue()));
         }
         List<String> params = commandLine.getIndexedParams();
-        if (outputFilePath == null || params.size() == 0) {
-            System.out.println("Usage: yaml2jbosscli -o <output file name> <input file name> [<input file name>]...");
+        if (params.size() == 0) {
+            System.out.println("Usage: yaml2jbosscli [-c <context file name>] [--keypath=value]... -o <output file name> <input file name> [<input file name>]...");
             return;
         }
-        System.out.println("Writing output to file: " + outputFilePath);
-        Yaml2JbossCliCompiler compiler = new Yaml2JbossCliCompiler(new File(outputFilePath), contextMap);
-        compiler.processFiles(commandLine.getIndexedParams());
+        Yaml2JbossCliCompiler compiler = new Yaml2JbossCliCompiler(context);
+        compiler.processFiles(commandLine.getIndexedParams(), outputFilePath);
     }
 }

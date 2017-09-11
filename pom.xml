@@ -33,10 +33,15 @@
       <version>5.0.0-M6</version>
       <scope>test</scope>
     </dependency>
+    <!--<dependency>-->
+      <!--<groupId>com.esotericsoftware.yamlbeans</groupId>-->
+      <!--<artifactId>yamlbeans</artifactId>-->
+      <!--<version>1.12</version>-->
+    <!--</dependency>-->
     <dependency>
-      <groupId>com.esotericsoftware.yamlbeans</groupId>
-      <artifactId>yamlbeans</artifactId>
-      <version>1.12</version>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>1.19-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>

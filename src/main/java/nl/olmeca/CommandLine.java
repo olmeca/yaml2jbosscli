@@ -22,12 +22,10 @@ public class CommandLine {
                     paramName = item.charAt(1);
                 }
                 else if (item.length() > 3 && item.startsWith("--")) {
-                    System.out.println("Command line context param: " + item);
                     int separatorIndex = item.indexOf('=');
                     String key = item.substring(2, separatorIndex);
                     // check if the '=' is at the end of the string
                     String value = separatorIndex == item.length() - 1 ? "" : item.substring(separatorIndex + 1);
-                    System.out.println("key: " + key + ", value: " + value);
                     contextParams.put(key, value);
                 }
                 else {
